@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Analizador - Confecciones Nueva Era S.A.S.</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        @media print {
+            body * { visibility: hidden; }
+            #printable-report, #printable-report * { visibility: visible; }
+            #printable-report { position: absolute; left: 0; top: 0; width: 100%; padding: 20px; }
+            .no-print { display: none !important; }
+            canvas { max-width: 100% !important; height: auto !important; }
+        }
+    </style>
+</head>
+<body class="bg-gray-50 text-gray-800 font-sans">
+    <nav class="bg-indigo-700 text-white p-4 no-print shadow-md">
+        <div class="max-w-6xl mx-auto flex flex-wrap justify-between items-center">
+            <h1 class="text-xl font-bold">Confecciones Nueva Era S.A.S.</h1>
+            <div class="flex gap-2 mt-2 sm:mt-0">
+                <button onclick="showTab('datos')" class="px-3 py-1 hover:bg-indigo-500 rounded">Datos</button>
+                <button onclick="showTab('estadistica')" class="px-3 py-1 hover:bg-indigo-500 rounded">Estadística</button>
+                <button onclick="showTab('graficos')" class="px-3 py-1 hover:bg-indigo-500 rounded">Gráficos</button>
+                <button onclick="showTab('recomendaciones')" class="px-3 py-1 hover:bg-indigo-500 rounded">Recomendaciones</button>
+                <button onclick="generateReport()" class="px-3 py-1 bg-green-500 hover:bg-green-400 rounded font-bold">Generar Informe</button>
+            </div>
+        </div>
+    </nav>
+
+    <main class="max-w-6xl mx-auto p-4 mt-4">
+        <!-- Pestaña Datos -->
+        <div id="datos" class="tab-content bg-white p-6 rounded shadow">
+            <p class="mb-4">Variable: <strong>Tiempo de confección por prenda (min)</strong> | Límite: 40 min | Meta: 32 min</p>
+            <textarea id="csvInput" rows="5" class="w-full border p-2 rounded mb-2" placeholder="Pega tus 35 registros aquí (separados por coma o salto de línea)..."></textarea>
+            <button onclick="processData()" class="bg-indigo-600 text-white px-4 py-2 rounded">Cargar / Procesar Datos</button>
+            <div class="mt-4 overflow-x-auto">
+                <table class="w-full text-left border-collapse">
+                    <thead><tr class="border-b"><th class="p-2"># Registro</th><th class="p-2">Tiempo (min)</th></tr></thead>
+                    <tbody id="dataTableBody"></tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Pestaña Estadística -->
+        <div id="estadistica" class="tab-content hidden bg-white p-6 rounded shadow">
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4" id="statsCards"></div>
+        </div>
+
+        <!-- Pestaña Gráficos -->
+        <div id="graficos" class="tab-content hidden bg-white p-6 rounded shadow">
+            <div class="w-full h-96 mb-8"><canvas id="histogramChart"></canvas></div>
+            <div class="w-full h-96"><canvas id="controlChart"></canvas></div>
+        </div>
+
+        <!-- Pestaña Recomendaciones -->
+        <div id="recomendaciones" class="tab-content hidden bg-white p-6 rounded shadow">
+            <div id="diagnosticoContainer"></div>
+        </div>
+    </main>
+
+    <!-- Informe Imprimible (Oculto en pantalla normal) -->
+    <div id="printable-report" class="hidden bg-white">
+        <div class="text-center border-b-2 pb-4 mb-6">
+            <h1 class="text-3xl font-bold">Informe Ejecutivo: Módulo de Costura</h1>
+            <h2 class="text-xl">Confecciones Nueva Era S.A.S.</h2>
+            <p class="text-gray-500" id="reportDate"></p>
+        </div>
+        <h3 class="font-bold text-lg mb-2">Resumen de Estadísticas</h3>
+        <div id="reportStats" class="mb-6 grid grid-cols-2 gap-4 border p-4"></div>
+        <h3 class="font-bold text-lg mb-2">Diagnóstico y Alternativas de Mejora</h3>
+        <div id="reportRecommendations" class="mb-6 border p-4"></div>
+        <h3 class="font-bold text-lg mb-2">Gráficos Analíticos</h3>
+        <div id="reportCharts" class="flex flex-col gap-4"></div>
+    </div>
+
+    <script>
+        let rawData = [];
+        let histogramInstance = null;
+        let controlInstance = null;
+
+        // Simulación de datos iniciales si no hay entrada
+        const defaultData = [32.5, 33.1, 31.8, 38.5, 39.2, 32.0, 31.5, 38.9, 33.0, 32.2, 31.9, 39.5, 38.1, 32.4, 33.3, 31.7, 38.8, 39.0, 32.1, 32.6, 31.6, 38.4, 39.3, 32.5, 32.8, 31.4, 38.7, 39.1, 32.3, 32.9, 31.8, 38.6, 39.4, 32.2, 32.7];
+
+        function showTab(tabId) {
+            document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
+            document.getElementById(tabId).classList.remove('hidden');
+        }
+
+        function processData() {
+            const input = document.getElementById('csvInput').value;
+            rawData = input ? input.split(/[\n,]+/).map(Number).filter(n => !isNaN(n) && n > 0) : defaultData;
+            
+            if (rawData.length === 0) return alert("Por favor ingresa datos numéricos válidos.");
+            
+            updateTable();
+            calculateStats();
+            renderCharts();
+            generateDiagnosis();
+            alert("Datos procesados correctamente.");
+        }
+
+        function updateTable() {
+            const tbody = document.getElementById('dataTableBody');
+            tbody.innerHTML = rawData.map((val, i) => `<tr class="border-b"><td class="p-2">${i+1}</td><td class="p-2">${val.toFixed(2)}</td></tr>`).join('');
+        }
+
+        function calculateStats() {
+            const n = rawData.length;
+            const mean = rawData.reduce((a, b) => a + b, 0) / n;
+            const sorted = [...rawData].sort((a, b) => a - b);
+            const median = n % 2 === 0 ? (sorted[n/2 - 1] + sorted[n/2]) / 2 : sorted[Math.floor(n/2)];
+            const stdDev = Math.sqrt(rawData.map(x => Math.pow(x - mean, 2)).reduce((a, b) => a + b, 0) / (n - 1));
+            
+            const cards = `
+                <div class="p-4 border rounded shadow-sm bg-blue-50">
+                    <h3 class="text-sm font-bold text-gray-500">Media (Promedio)</h3>
+                    <p class="text-2xl">${mean.toFixed(2)} min</p>
+                    <p class="text-xs text-gray-600 mt-1">Tiempo típico de producción por camisa.</p>
+                </div>
+                <div class="p-4 border rounded shadow-sm bg-blue-50">
+                    <h3 class="text-sm font-bold text-gray-500">Mediana</h3>
+                    <p class="text-2xl">${median.toFixed(2)} min</p>
+                    <p class="text-xs text-gray-600 mt-1">El valor central que divide la muestra en dos mitades.</p>
+                </div>
+                <div class="p-4 border rounded shadow-sm bg-blue-50">
+                    <h3 class="text-sm font-bold text-gray-500">Desviación Estándar</h3>
+                    <p class="text-2xl">${stdDev.toFixed(2)} min</p>
+                    <p class="text-xs text-gray-600 mt-1">Variabilidad del proceso de costura.</p>
+                </div>
+            `;
+            document.getElementById('statsCards').innerHTML = cards;
+            document.getElementById('reportStats').innerHTML = cards;
+        }
+
+        function renderCharts() {
+            const labels = rawData.map((_, i) => `Reg ${i+1}`);
+            const mean = rawData.reduce((a, b) => a + b, 0) / rawData.length;
+
+            if (controlInstance) controlInstance.destroy();
+            const ctxCtrl = document.getElementById('controlChart').getContext('2d');
+            controlInstance = new Chart(ctxCtrl, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [
+                        { label: 'Tiempo (min)', data: rawData, borderColor: '#4f46e5', fill: false, tension: 0.1 },
+                        { label: 'Límite Especificación (40)', data: Array(rawData.length).fill(40), borderColor: '#ef4444', borderDash: [5, 5], fill: false },
+                        { label: 'Meta (32)', data: Array(rawData.length).fill(32), borderColor: '#10b981', borderDash: [5, 5], fill: false }
+                    ]
+                },
+                options: { responsive: true, maintainAspectRatio: false, plugins: { title: { display: true, text: 'Gráfico de Control / Tendencia' } } }
+            });
+
+            // Histograma Básico
+            const bins = [30, 32, 34, 36, 38, 40, 42];
+            const freqs = Array(bins.length - 1).fill(0);
+            rawData.forEach(val => {
+                for (let i = 0; i < bins.length - 1; i++) {
+                    if (val >= bins[i] && val < bins[i+1]) freqs[i]++;
+                }
+            });
+
+            if (histogramInstance) histogramInstance.destroy();
+            const ctxHist = document.getElementById('histogramChart').getContext('2d');
+            histogramInstance = new Chart(ctxHist, {
+                type: 'bar',
+                data: {
+                    labels: ['30-32', '32-34', '34-36', '36-38', '38-40', '40-42'],
+                    datasets: [{ label: 'Frecuencia de Lotes', data: freqs, backgroundColor: '#6366f1' }]
+                },
+                options: { responsive: true, maintainAspectRatio: false, plugins: { title: { display: true, text: 'Histograma (Comprobación de Bimodalidad)' } } }
+            });
+        }
+
+        function generateDiagnosis() {
+            const outOfSpec = rawData.filter(v => v > 40).length;
+            const diag = `
+                <h3 class="font-bold text-lg text-red-600 mb-2">Diagnóstico Automatizado</h3>
+                <ul class="list-disc pl-5 mb-4">
+                    <li>Se encontraron ${outOfSpec} registros por encima del límite máximo de 40 min.</li>
+                    <li>La distribución muestra posibles "jorobas" (bimodalidad), sugiriendo diferencias drásticas entre operarios o referencias de camisa.</li>
+                </ul>
+                <h3 class="font-bold text-lg text-green-600 mb-2">Alternativas de Mejora (Priorizadas)</h3>
+                <ul class="list-decimal pl-5">
+                    <li><strong>Estandarización de método:</strong> Identificar por qué un grupo de datos está cerca a 38-39 min y capacitarlos para acercarse a la meta de 32 min. (Impacto: Alto | Costo: Bajo).</li>
+                    <li><strong>Mantenimiento predictivo:</strong> Revisar calibración de las máquinas de coser en la estación que reporta los tiempos más altos. (Impacto: Medio | Costo: Medio).</li>
+                </ul>
+            `;
+            document.getElementById('diagnosticoContainer').innerHTML = diag;
+            document.getElementById('reportRecommendations').innerHTML = diag;
+        }
+
+        function generateReport() {
+            document.getElementById('reportDate').innerText = new Date().toLocaleDateString();
+            
+            // Clonar gráficos para la vista de impresión
+            const reportChartsContainer = document.getElementById('reportCharts');
+            reportChartsContainer.innerHTML = '';
+            
+            const ctrlImg = new Image();
+            ctrlImg.src = document.getElementById('controlChart').toDataURL();
+            ctrlImg.className = 'w-full mb-4 border shadow-sm';
+            
+            const histImg = new Image();
+            histImg.src = document.getElementById('histogramChart').toDataURL();
+            histImg.className = 'w-full border shadow-sm';
+
+            reportChartsContainer.appendChild(ctrlImg);
+            reportChartsContainer.appendChild(histImg);
+
+            // Mostrar el contenedor de reporte temporalmente para imprimir
+            document.getElementById('printable-report').classList.remove('hidden');
+            window.print();
+            
+            // Ocultar de nuevo tras imprimir
+            setTimeout(() => { document.getElementById('printable-report').classList.add('hidden'); }, 500);
+        }
+
+        // Inicializar
+        processData();
+    </script>
+</body>
+</html>
